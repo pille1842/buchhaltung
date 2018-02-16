@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+import fire
+import json
+from pathlib import Path
+
+class Buchhaltung(object):
+    """Ein Buchhaltungshelfer. Erlaubt es, eine Kontenliste zu verwalten und zu durchsuchen,
+    Beträge zwischen Brutto und Netto umzurechnen, Rechnungsbeträge aufzuteilen und Summen
+    zu berechnen.
+
+    BETRÄGE BERECHNEN
+    -----------------
+
+    bh netto BETRAG PROZENT           behandle Betrag als Brutto und berechne den Nettobetrag
+                                      bei PROZENT % Steuer
+       bh n19 BETRAG                  wie 'bh netto' mit 19% Steuer
+       bh n7  BETRAG                  wie 'bh netto' mit 7% Steuer
+    bh brutto BETRAG PROZENT          behandle Betrag als Netto und berechne den Bruttobetrag
+                                      bei PROZENT % Steuer
+       bh b19 BETRAG                  wie 'bh brutto' mit 19% Steuer
+       bh b7  BETRAG                  wie 'bh brutto' mit 7% Steuer
+    bh sum BETRÄGE...                 berechne die Summe aller eingegebenen Beträge
+
+    RECHNUNGEN AUFTEILEN
+    --------------------
+
+    bh aufteilen GESAMT STEUER BETRÄGE...
+      teile eine Rechnung mit dem Gesamtbetrag GESAMT auf. Wende auf jeden der BETRÄGE einen
+      Steuersatz von STEUER % an, wenn STEUER > 0. Falls ein Rest übrig bleibt, wird dieser
+      ebenfalls ausgegeben. Falls die Summe der BETRÄGE > GESAMT, gib den Fehlbetrag aus.
+
+    bh aufteilen0  GESAMT BETRÄGE...
+    bh aufteilen7  GESAMT BETRÄGE...
+    bh aufteilen19 GESAMT BETRÄGE...
+      wie 'bh aufteilen' mit den angenommenen Steuersätzen 0%, 7% und 19%.
+
+    KONTEN VERWALTEN
+    ----------------
+
+    Konten werden im standardmäßig in ~/.config/buchhaltung/konten.json gespeichert.
+
+    bh konto SUCHBEGRIFF
+      durchsuche die Kontenliste nach SUCHBEGRIFF und gib alle Konten zurück, bei denen
+      SUCHBEGRIFF im Namen auftaucht.
+
+    bh kontonr KONTONUMMER
+      durchsuche die Kontenliste nach Konten, in deren Nummer KONTONUMMER vorkommt.
+
+    bh neukonto KONTONUMMER NAME
+      füge ein neues Konto mit der Nummer KONTONUMMER und dem Namen NAME hinzu.
+
+    bh delkonto KONTONUMMER
+      lösche das Konto mit der Nummer KONTONUMMER aus der Kontenliste."""
+
+    def __init__(self):
+        """Initialisiere das Buchhaltungsprogramm. Lade die Kontenliste aus konten.dat."""
+        self.kontenfilepath = Path.home().joinpath('.config/buchhaltung/konten.json')
+        kontenfile = Path(self.kontenfilepath)
+        if not kontenfile.is_file():
+            if not kontenfile.parent.is_dir():
+                kontenfile.parent.mkdir(parents=True, exist_ok=True)
+            with kontenfile.open('w') as f:
+                f.write(json.dumps({}))
+        with kontenfile.open('r') as f:
+            self.konten = json.loads(f.read())
+
+    def numprint(self, num):
+        return '{:.2f}'.format(num)
+
+    def netto(self, betrag, prozent):
+        """Behandle BETRAG als Brutto und berechne den Nettobetrag bei PROZENT % Steuer."""
+        fraction = prozent / 100
+        return self.numprint(betrag / (1 + fraction))
+
+    def n19(self, betrag):
+        """Behandle BETRAG als Brutto und berechne den Nettobetrag bei 19% Steuer."""
+        return self.netto(betrag, 19)
+
+    def n7(self, betrag):
+        """Behandle BETRAG als Brutto und berechne den Nettobetrag bei 7% Steuer."""
+        return self.netto(betrag, 7)
+
+    def brutto(self, betrag, prozent):
+        """Behandle BETRAG als Netto und berechne den Bruttobetrag bei PROZENT % Steuer."""
+        fraction = prozent / 100
+        return self.numprint(betrag * (1 + fraction))
+
+    def b19(self, betrag):
+        """Behandle BETRAG als Netto und berechne den Bruttobetrag bei 19% Steuer."""
+        return self.brutto(betrag, 19)
+
+    def b7(self, betrag):
+        """Behandle BETRAG als Netto und berechne den Bruttobetrag bei 7% Steuer."""
+        return self.brutto(betrag, 7)
+
+    def sum(self, *args):
+        """Berechne die Summe aller eingegebenen Beträge."""
+        summe = 0
+        for i in args:
+            summe = summe + i
+        return self.numprint(summe)
+
+    def aufteilen(self, gesamt, steuer, *args):
+        """Teile eine Rechnung auf mehrere Personen auf. Wenn STEUER > 0 ist, behandle
+        alle Beträge (außer dem Gesamtbetrag) als Nettobeträge und schlage STEUER% Steuer
+        auf. Wenn ein Rest bleibt, gib diesen ebenfalls aus."""
+        output = 'TOTAL: {: 8.2f}\n'.format(gesamt)
+        perscount = 1
+        if steuer > 0:
+            fraction = 1 + (steuer / 100)
+        else:
+            fraction = 1
+        for i in args:
+            netto = i * fraction
+            gesamt = gesamt - netto
+            output = output + 'PER{:02d}: {: 8.2f}\n'.format(perscount, netto)
+            perscount = perscount + 1
+        if gesamt > 0:
+            output = output + 'REST : {: 8.2f}'.format(gesamt)
+        elif gesamt < 0:
+            output = output + 'FEHLT: {: 8.2f}'.format(gesamt)
+        else:
+            output = output + 'GEHT AUF'
+        return output
+
+    def aufteilen19(self, gesamt, *args):
+        """Teile eine Rechnung auf mehrere Personen auf. Schlage auf alle Beträge (außer
+        dem Gesamtbetrag) 19% Steuer auf. Wenn ein Rest bleibt, gib diesen ebenfalls aus."""
+        return self.aufteilen(gesamt, 19, *args)
+
+    def aufteilen7(self, gesamt, *args):
+        """Teile eine Rechnung auf mehrere Personen auf. Schlage auf alle Beträge (außer
+        dem Gesamtbetrag) 7% Steuer auf. Wenn ein Rest bleibt, gib diesen ebenfalls aus."""
+        return self.aufteilen(gesamt, 7, *args)
+
+    def aufteilen0(self, gesamt, *args):
+        """Teile eine Rechnung auf mehrere Personen auf. Schlage keine Steuer auf.
+        Wenn ein Rest bleibt, gib diesen ebenfalls aus."""
+        return self.aufteilen(gesamt, 0, *args)
+
+    def konto(self, suche):
+        """Durchsuche die Kontenliste nach einem Suchbegriff und liefere alle passenden
+        Kontonummern zurück."""
+        return ['{:>6} {}'.format(konto, name) for konto, name in self.konten.items() if str(suche).upper() in name]
+
+    def kontonr(self, suche):
+        """Durchsuche die Kontenliste nach einer Kontonummer und liefere alle passenden
+        Konten zurück."""
+        return ['{:>6} {}'.format(konto, name) for konto, name in self.konten.items() if str(suche) in konto]
+
+    def neukonto(self, konto, name):
+        """Füge ein neues Konto mit der Kontonummer KONTO und dem Suchbegriff NAME hinzu."""
+        if str(konto) in self.konten.keys():
+            raise KeyError('Konto {} existiert bereits.'.format(konto))
+        self.konten[konto] = name.upper()
+        self.write_kontenfile()
+
+    def delkonto(self, konto):
+        """Lösche ein Konto mit der Nummer KONTO aus der Kontenliste."""
+        self.konten.pop(str(konto))
+        self.write_kontenfile()
+
+    def write_kontenfile(self):
+        kontenfile = Path(self.kontenfilepath)
+        with kontenfile.open('w') as f:
+            f.write(json.dumps(self.konten))
+ 
+
+if __name__ == '__main__':
+    fire.Fire(Buchhaltung)
